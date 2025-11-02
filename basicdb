@@ -1,0 +1,301 @@
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { TrendingUp, DollarSign, Users, Target, Award, AlertCircle } from 'lucide-react';
+
+const Dashboard = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const csvText = await window.fs.readFile('customer_acquisition_data.csv', { encoding: 'utf8' });
+        const rows = csvText.split('\n').slice(1).filter(row => row.trim());
+        
+        const parsed = rows.map(row => {
+          const [id, channel, cost, convRate, revenue] = row.split(',');
+          return {
+            id: parseInt(id),
+            channel: channel.trim(),
+            cost: parseFloat(cost),
+            conversionRate: parseFloat(convRate),
+            revenue: parseFloat(revenue)
+          };
+        });
+
+        // Calculate insights
+        const channelStats = {};
+        parsed.forEach(row => {
+          if (!channelStats[row.channel]) {
+            channelStats[row.channel] = {
+              count: 0,
+              totalRevenue: 0,
+              totalCost: 0,
+              avgConvRate: 0
+            };
+          }
+          channelStats[row.channel].count++;
+          channelStats[row.channel].totalRevenue += row.revenue;
+          channelStats[row.channel].totalCost += row.cost;
+        });
+
+        const channelInsights = Object.entries(channelStats).map(([channel, stats]) => ({
+          channel,
+          customers: stats.count,
+          totalRevenue: stats.totalRevenue,
+          totalCost: stats.totalCost,
+          avgRevenue: stats.totalRevenue / stats.count,
+          avgCost: stats.totalCost / stats.count,
+          roi: ((stats.totalRevenue - stats.totalCost) / stats.totalCost) * 100,
+          profitMargin: ((stats.totalRevenue - stats.totalCost) / stats.totalRevenue) * 100,
+          customerValue: stats.totalRevenue / stats.count
+        }));
+
+        // Get conversion rates (unique per channel)
+        const convRates = {};
+        parsed.forEach(row => {
+          if (!convRates[row.channel]) {
+            convRates[row.channel] = row.conversionRate;
+          }
+        });
+        channelInsights.forEach(ci => {
+          ci.conversionRate = convRates[ci.channel];
+        });
+
+        const totalRevenue = parsed.reduce((sum, r) => sum + r.revenue, 0);
+        const totalCost = parsed.reduce((sum, r) => sum + r.cost, 0);
+        const totalProfit = totalRevenue - totalCost;
+
+        setData({
+          raw: parsed,
+          channelInsights: channelInsights.sort((a, b) => b.roi - a.roi),
+          totals: {
+            revenue: totalRevenue,
+            cost: totalCost,
+            profit: totalProfit,
+            roi: ((totalProfit / totalCost) * 100),
+            customers: parsed.length,
+            avgCustomerValue: totalRevenue / parsed.length
+          }
+        });
+        setLoading(false);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="text-xl text-gray-700">Loading dashboard...</div>
+    </div>;
+  }
+
+  if (!data) {
+    return <div className="flex items-center justify-center h-screen">
+      <div className="text-xl text-red-600">Error loading data</div>
+    </div>;
+  }
+
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+
+  const bestChannel = data.channelInsights[0];
+  const worstChannel = data.channelInsights[data.channelInsights.length - 1];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">Customer Acquisition Analytics</h1>
+          <p className="text-gray-600">Comprehensive insights across all marketing channels</p>
+        </div>
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-gray-600 text-sm">Total Revenue</span>
+              <DollarSign className="text-green-500" size={20} />
+            </div>
+            <div className="text-2xl font-bold text-gray-800">${data.totals.revenue.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 mt-1">Across all channels</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-gray-600 text-sm">Total Profit</span>
+              <TrendingUp className="text-blue-500" size={20} />
+            </div>
+            <div className="text-2xl font-bold text-gray-800">${data.totals.profit.toLocaleString()}</div>
+            <div className="text-xs text-green-600 mt-1">ROI: {data.totals.roi.toFixed(1)}%</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-gray-600 text-sm">Customers</span>
+              <Users className="text-purple-500" size={20} />
+            </div>
+            <div className="text-2xl font-bold text-gray-800">{data.totals.customers}</div>
+            <div className="text-xs text-gray-500 mt-1">Total acquisitions</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-gray-600 text-sm">Avg Customer Value</span>
+              <Target className="text-orange-500" size={20} />
+            </div>
+            <div className="text-2xl font-bold text-gray-800">${data.totals.avgCustomerValue.toFixed(0)}</div>
+            <div className="text-xs text-gray-500 mt-1">Per customer</div>
+          </div>
+        </div>
+
+        {/* Key Insights */}
+        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg shadow-lg p-6 mb-6 text-white">
+          <div className="flex items-start gap-3 mb-4">
+            <Award className="mt-1" size={24} />
+            <div>
+              <h2 className="text-xl font-bold mb-2">Key Insights</h2>
+              <div className="space-y-2 text-sm">
+                <p>✓ <strong>{bestChannel.channel}</strong> is your best performing channel with {bestChannel.roi.toFixed(0)}% ROI</p>
+                <p>✓ <strong>{data.channelInsights.find(c => c.conversionRate === Math.max(...data.channelInsights.map(x => x.conversionRate))).channel}</strong> has the highest conversion rate at {(Math.max(...data.channelInsights.map(x => x.conversionRate)) * 100).toFixed(2)}%</p>
+                <p>✓ Overall profit margin across all channels: <strong>{((data.totals.profit / data.totals.revenue) * 100).toFixed(1)}%</strong></p>
+                <p>⚠ <strong>{worstChannel.channel}</strong> needs optimization - lowest ROI at {worstChannel.roi.toFixed(0)}%</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Charts Row 1 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* ROI by Channel */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">ROI by Channel (%)</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={data.channelInsights}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="channel" angle={-45} textAnchor="end" height={80} />
+                <YAxis />
+                <Tooltip formatter={(value) => `${value.toFixed(1)}%`} />
+                <Bar dataKey="roi" fill="#3b82f6" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Revenue Distribution */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Revenue Distribution</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={data.channelInsights}
+                  dataKey="totalRevenue"
+                  nameKey="channel"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label={(entry) => `${entry.channel}: $${(entry.totalRevenue/1000).toFixed(0)}k`}
+                >
+                  {data.channelInsights.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `$${value.toLocaleString()}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Charts Row 2 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Customer Acquisition Cost vs Revenue */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Avg Cost vs Avg Revenue per Customer</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={data.channelInsights}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="channel" angle={-45} textAnchor="end" height={80} />
+                <YAxis />
+                <Tooltip formatter={(value) => `$${value.toFixed(2)}`} />
+                <Legend />
+                <Bar dataKey="avgCost" fill="#ef4444" name="Avg Cost" />
+                <Bar dataKey="avgRevenue" fill="#10b981" name="Avg Revenue" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Conversion Rate */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Conversion Rate by Channel (%)</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={data.channelInsights}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="channel" angle={-45} textAnchor="end" height={80} />
+                <YAxis />
+                <Tooltip formatter={(value) => `${(value * 100).toFixed(3)}%`} />
+                <Bar dataKey="conversionRate" fill="#f59e0b" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Detailed Table */}
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Channel Performance Summary</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 border-b">
+                <tr>
+                  <th className="text-left p-3">Channel</th>
+                  <th className="text-right p-3">Customers</th>
+                  <th className="text-right p-3">Total Revenue</th>
+                  <th className="text-right p-3">Total Cost</th>
+                  <th className="text-right p-3">Profit</th>
+                  <th className="text-right p-3">ROI</th>
+                  <th className="text-right p-3">Conv Rate</th>
+                  <th className="text-right p-3">Avg Customer Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.channelInsights.map((channel, idx) => (
+                  <tr key={idx} className="border-b hover:bg-gray-50">
+                    <td className="p-3 font-medium">{channel.channel}</td>
+                    <td className="text-right p-3">{channel.customers}</td>
+                    <td className="text-right p-3">${channel.totalRevenue.toLocaleString()}</td>
+                    <td className="text-right p-3">${channel.totalCost.toFixed(0)}</td>
+                    <td className="text-right p-3 text-green-600">${(channel.totalRevenue - channel.totalCost).toLocaleString()}</td>
+                    <td className="text-right p-3 font-semibold">{channel.roi.toFixed(1)}%</td>
+                    <td className="text-right p-3">{(channel.conversionRate * 100).toFixed(3)}%</td>
+                    <td className="text-right p-3">${channel.customerValue.toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Recommendations */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-blue-500 mt-1" size={24} />
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-3">Strategic Recommendations</h3>
+              <div className="space-y-2 text-sm text-gray-700">
+                <p><strong>1. Scale Up:</strong> Increase investment in <strong>{bestChannel.channel}</strong> - it delivers {bestChannel.roi.toFixed(0)}% ROI with strong margins</p>
+                <p><strong>2. Optimize or Cut:</strong> Review <strong>{worstChannel.channel}</strong> strategy - consider reallocating budget to higher-performing channels</p>
+                <p><strong>3. Focus on Conversion:</strong> <strong>{data.channelInsights.find(c => c.conversionRate === Math.max(...data.channelInsights.map(x => x.conversionRate))).channel}</strong> has the highest conversion rate - analyze what's working here and apply to other channels</p>
+                <p><strong>4. Customer Value:</strong> Average customer value is ${data.totals.avgCustomerValue.toFixed(0)} - consider upselling strategies to increase this metric</p>
+                <p><strong>5. Cost Efficiency:</strong> Total acquisition cost is ${data.totals.cost.toFixed(0)} for ${data.totals.revenue.toLocaleString()} in revenue - maintain this {((data.totals.cost/data.totals.revenue)*100).toFixed(1)}% cost ratio or better</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
